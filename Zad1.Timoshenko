@@ -1,0 +1,59 @@
+#Тимошенко Мария- для региона 42 Кемеровская область
+#Задание: рассчитайте урожайность пшеницы в 2008 году, взяв для рассчета
+#средние суммы активных температур за предыдущие 5 лет, с метеостанций на
+#расстоянии от 50 до 250 км
+#Установим нужные библиотеки
+install.packages(tidyverse)
+library(tidyverse)
+install.packages(rnoaa)
+library(rnoaa)
+library(lubridate)
+#Создадим векторы с данными констант для расчета урожая
+afi = c(0.00,0.00,0.00,32.11, 26.31,25.64,23.20,18.73,16.30,13.83,0.00,0.00) #константа
+bfi = c(0.00, 0.00, 0.00, 11.30, 9.26, 9.03,8.16, 6.59, 5.73, 4.87, 0.00, 0.00) #константа
+dfi = c(0.00,0.00, 0.00, 0.33, 1.00, 1.00, 1.00, 0.32, 0.00, 0.00, 0.00, 0.00) #отношение числа дней i-го месяца, входящих в период вегетации культуры, к общему числу дней в месяце
+Kf = 300 # Коэффициент использования ФАР
+Qj = 1600 # калорийность урожая культуры
+Lj = 2.2 # сумма частей основной и побочной продукции
+Ej = 25 # стандартная влажность культуры
+#Скачиваем станции
+station_data = ghcnd_stations()
+write.csv(station_data,"station_data20.csv")
+station_data = read.csv("station_data20.csv")
+#После получения списка всех станций, выберем из него список станций ближайших к Кемерово,создав таблицу с именем региона и координатами его столицы
+Kemerovo = data.frame(id="KEMEROVO", latitude = 54.897940, longitude = 86.990382)
+Kemerovo_around = meteo_nearby_stations(lat_lon_df = Kemerovo,
+                                        station_data = station_data, limit = 18 , var = c("PRCP", "TAVG"),
+                                        year_min = 2003, year_max = 2007)
+#В итоге получаем таблицу с идентификаторами метиостанций по удаленности их от Кемерово
+Kemerovo_around
+#Объединим данные, создав цикл для всех метеостанций
+all_Kemerovo_data = tibble()
+for (v in 1:18)
+{
+  Kemerovo_id = Kemerovo_around[["KEMEROVO"]][["id"]][v]
+  #
+  data = meteo_tidy_ghcnd(stationid = Kemerovo_id,
+                          var="TAVG",
+                          date_min="2003-01-01",
+                          date_max="2007-12-31")
+  all_Kemerovo_data = bind_rows(all_Kemerovo_data, data)
+}
+#Произведем обработку полученных данных
+#Добавим для наших данных колонки year, month для группировки
+clean_data = all_Kemerovo_data %>%
+  mutate(year = year(date), month = month(date)) %>%
+  #Сгрупируем с учетом id наших метеостанций
+  group_by(year, month, id) %>%
+  #Суммирования с учетом id метеостанций
+  summarize(tavg = sum(tavg[tavg>5], na.rm=TRUE)/10) %>%
+  #Нахождения средних месячных активных температур, сгрупировав данные:
+  group_by(month) %>%
+  summarize(s = mean(tavg, na.rm = TRUE)) %>%
+  #Создадим колонки для расчета:
+  mutate (a = afi, b = bfi, d = dfi) %>%
+  #Рассчитаем урожайность для каждого месяца:
+  mutate (fert = ((a + b * s) * d * Kf) / (Qj * Lj * (100-Ej)) )
+#Общая урожайностей равна:
+Yield = sum(clean_data$fert); Yield
+#Для Кемеровской области урожайность пшеницы в 2008 году составила - 15,3ц/га
